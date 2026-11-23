@@ -3,35 +3,57 @@ const STORAGE_KEY = 'knitting_scarf_counter_v1';
 const STITCH_STYLES = {
   garter: {
     name: 'Vroubkový žerzej (Garter)',
+    rowMultiplier: 1,
     odd: 'Lichá řada (Líc): Všechna oka hladce.',
     even: 'Sudá řada (Rub): Všechna oka hladce. (Nekroutí se, ideální na šály.)'
   },
   stockinette: {
     name: 'Lícový žerzej (Stockinette)',
+    rowMultiplier: 1,
     odd: 'Lichá řada (Líc): Všechna oka hladce.',
     even: 'Sudá řada (Rub): Všechna oka obrace.'
   },
+  doubleStockinette: {
+    name: 'Dvojitý lícový žerzej (Double Stockinette)',
+    rowMultiplier: 2,
+    odd: 'Lichá řada: Opakovat *1 hladce, 1 oko sejmout obrace s přízí vpředu*. (2× řady = 1 viditelná.)',
+    even: 'Sudá řada: Opakovat *1 hladce, 1 oko sejmout obrace s přízí vpředu*. (Obě strany jsou hladké.)'
+  },
+  doubleKnitting: {
+    name: 'Oboustranné pletení (Double Knitting)',
+    rowMultiplier: 2,
+    odd: 'Lichá řada (Líc): Střídat *1 hladce (lícová barva), 1 obrace (rubová barva)*. Obě příze společně.',
+    even: 'Sudá řada (Rub): Střídat *1 hladce (barva této strany), 1 obrace (barva druhé strany)*. (2× řady.)'
+  },
   rib1x1: {
     name: 'Pružný vzor 1×1 (Ribbing)',
+    rowMultiplier: 1,
     odd: 'Lichá řada: Opakovat *1 hladce, 1 obrace*.',
     even: 'Sudá řada: Plést oka tak, jak se jeví (hladké hladce, obrace obrace).'
   },
   rib2x2: {
     name: 'Pružný vzor 2×2 (Ribbing)',
+    rowMultiplier: 1,
     odd: 'Lichá řada: Opakovat *2 hladce, 2 obrace*.',
     even: 'Sudá řada: Plést oka tak, jak se jeví (2 hladce, 2 obrace).'
   },
   seed: {
     name: 'Rýžový / perličkový vzor',
+    rowMultiplier: 1,
     odd: 'Lichá řada: Opakovat *1 hladce, 1 obrace*.',
     even: 'Sudá řada: Střídat – nad hladkým obrace, nad obrace hladce.'
   },
   brioche: {
     name: 'Patentový vzor (Brioche)',
+    rowMultiplier: 1,
     odd: 'Lichá řada: *1 hladce, 1 oko sejmout s nahozením*.',
     even: 'Sudá řada: *Sejmuté oko s nahozením splést hladce, 1 sejmout s nahozením*.'
   }
 };
+
+function getRowMultiplier(styleKey) {
+  return (STITCH_STYLES[styleKey] && STITCH_STYLES[styleKey].rowMultiplier) || 1;
+}
 
 function createEmptyState() {
   return {
@@ -133,7 +155,6 @@ function openRuleModal(ruleIndex = null) {
     }
     document.getElementById('solidRowsInput').value = Math.max(1, Number(rule.rows) || 1);
 
-    // Připravíme výchozí kroky pro případ přepnutí typu na sekvenci
     addSequenceStepRow(project, project.palette[0]?.id, 2);
     if (project.palette[1]) addSequenceStepRow(project, project.palette[1].id, 2);
     document.getElementById('seqRepeatInfinite').checked = false;
@@ -177,6 +198,7 @@ function openRuleModal(ruleIndex = null) {
 
 function resolveColorForRow(project, rowNum) {
   const effectiveRow = Math.max(1, rowNum);
+  const mult = getRowMultiplier(project.stitchStyle);
   const findColor = (id) => project.palette.find(c => c.id === id) || { name: 'Neznámá barva', hex: '#999999' };
 
   if (!project.rules || project.rules.length === 0) {
@@ -197,7 +219,7 @@ function resolveColorForRow(project, rowNum) {
     const rule = project.rules[rIdx];
 
     if (rule.type === 'solid') {
-      const len = Math.max(1, Number(rule.rows) || 1);
+      const len = Math.max(1, Number(rule.rows) || 1) * mult;
       if (effectiveRow <= cursor + len) {
         const rowInStripe = effectiveRow - cursor;
         const rowsUntilChange = len - rowInStripe + 1;
@@ -213,7 +235,7 @@ function resolveColorForRow(project, rowNum) {
       }
       cursor += len;
     } else if (rule.type === 'sequence' && rule.steps && rule.steps.length > 0) {
-      const cycleRows = rule.steps.reduce((acc, s) => acc + Math.max(1, Number(s.rows) || 1), 0);
+      const cycleRows = rule.steps.reduce((acc, s) => acc + Math.max(1, Number(s.rows) || 1) * mult, 0);
       const totalRuleRows = rule.repeatUntilEnd
         ? Math.max(project.targetRows || 1000, effectiveRow + cycleRows)
         : cycleRows * Math.max(1, Number(rule.repeatCount) || 1);
@@ -225,7 +247,7 @@ function resolveColorForRow(project, rowNum) {
 
         for (let sIdx = 0; sIdx < rule.steps.length; sIdx++) {
           const step = rule.steps[sIdx];
-          const stepLen = Math.max(1, Number(step.rows) || 1);
+          const stepLen = Math.max(1, Number(step.rows) || 1) * mult;
           if (offsetInCycle < stepLen) {
             const rowInStripe = offsetInCycle + 1;
             const rowsUntilChange = stepLen - offsetInCycle;
@@ -333,6 +355,7 @@ function renderProjectSelector() {
 function renderCounterTab(project) {
   const row = Number(project.currentRow) || 0;
   const displayRowForRules = row === 0 ? 1 : row;
+  const mult = getRowMultiplier(project.stitchStyle);
 
   document.getElementById('currentRowNumber').textContent = row;
 
@@ -375,7 +398,9 @@ function renderCounterTab(project) {
   const isOdd = nextRowToKnit % 2 === 1;
 
   document.getElementById('stitchStyleTitle').textContent = styleObj.name;
-  document.getElementById('rowSideBadge').textContent = isOdd ? 'Lichá řada • Líc' : 'Sudá řada • Rub';
+  document.getElementById('rowSideBadge').textContent = mult > 1
+    ? `${isOdd ? 'Lichá' : 'Sudá'} • ${Math.ceil(nextRowToKnit / mult)}. viditelná`
+    : (isOdd ? 'Lichá řada • Líc' : 'Sudá řada • Rub');
   document.getElementById('stitchRowInstruction').textContent = isOdd ? styleObj.odd : styleObj.even;
 
   const mapEl = document.getElementById('scarfColorMap');
@@ -389,11 +414,12 @@ function renderCounterTab(project) {
 
   const gSts = Math.max(1, Number(project.gaugeStitches) || 20);
   const gRows = Math.max(1, Number(project.gaugeRows) || 26);
+  const effectiveGaugeRows = gRows * mult;
   const castOn = Math.max(1, Number(project.castOnStitches) || 50);
-  const targetRows = Math.max(1, Number(project.targetRows) || Math.round((project.targetLengthCm / 10) * gRows));
+  const targetRows = Math.max(1, Number(project.targetRows) || Math.round((project.targetLengthCm / 10) * effectiveGaugeRows));
 
-  const currentLengthCm = ((row / gRows) * 10).toFixed(1);
-  const expectedTotalLengthCm = ((targetRows / gRows) * 10).toFixed(0);
+  const currentLengthCm = ((row / effectiveGaugeRows) * 10).toFixed(1);
+  const expectedTotalLengthCm = ((targetRows / effectiveGaugeRows) * 10).toFixed(0);
   const actualWidthCm = ((castOn / gSts) * 10).toFixed(1);
   const remainingRows = Math.max(0, targetRows - row);
   const totalStitchesKnitted = (row * castOn).toLocaleString('cs-CZ');
@@ -405,6 +431,7 @@ function renderCounterTab(project) {
 }
 
 function renderColorsTab(project) {
+  const mult = getRowMultiplier(project.stitchStyle);
   const paletteEl = document.getElementById('paletteList');
   paletteEl.innerHTML = project.palette
     .map(c => `
@@ -431,15 +458,18 @@ function renderColorsTab(project) {
       let pillsHtml = '';
 
       if (rule.type === 'solid') {
-        const len = Math.max(1, Number(rule.rows) || 1);
+        const baseLen = Math.max(1, Number(rule.rows) || 1);
+        const len = baseLen * mult;
         const endRow = startRow + len - 1;
         const col = findColor(rule.colorId);
-        rangeText = `Řady ${startRow} – ${endRow} (${len} ř.)`;
+        rangeText = mult > 1
+          ? `Řady ${startRow} – ${endRow} (${baseLen}×2 = ${len} ř.)`
+          : `Řady ${startRow} – ${endRow} (${len} ř.)`;
         descText = `Jedna barva: ${escapeHtml(col.name)}`;
         pillsHtml = `<span class="mini-stripe-pill"><span class="chip-color" style="background:${col.hex}"></span>${len}× ${escapeHtml(col.name)}</span>`;
         startRow = endRow + 1;
       } else {
-        const cycleRows = rule.steps.reduce((acc, s) => acc + Math.max(1, Number(s.rows) || 1), 0);
+        const cycleRows = rule.steps.reduce((acc, s) => acc + Math.max(1, Number(s.rows) || 1) * mult, 0);
         if (rule.repeatUntilEnd) {
           rangeText = `Od řady ${startRow} až do konce šály`;
           descText = `Sekvence (${cycleRows} ř.) opakovat do konce`;
@@ -454,7 +484,9 @@ function renderColorsTab(project) {
         pillsHtml = rule.steps
           .map(s => {
             const col = findColor(s.colorId);
-            return `<span class="mini-stripe-pill"><span class="chip-color" style="background:${col.hex}"></span>${s.rows}× ${escapeHtml(col.name)}</span>`;
+            const stepTotal = Math.max(1, Number(s.rows) || 1) * mult;
+            const label = mult > 1 ? `${stepTotal}× (${s.rows}×2)` : `${stepTotal}×`;
+            return `<span class="mini-stripe-pill"><span class="chip-color" style="background:${col.hex}"></span>${label} ${escapeHtml(col.name)}</span>`;
           })
           .join('');
       }
@@ -546,11 +578,21 @@ function updateEditGaugeHint() {
   const gRows = Math.max(1, Number(document.getElementById('editGaugeRows').value) || 26);
   const width = Math.max(1, Number(document.getElementById('editTargetWidth').value) || 25);
   const length = Math.max(1, Number(document.getElementById('editTargetLength').value) || 170);
+  const mult = getRowMultiplier(document.getElementById('editStitchStyle').value);
 
   const recStitches = Math.round((width / 10) * gSts);
-  const recRows = Math.round((length / 10) * gRows);
+  const recRows = Math.round((length / 10) * gRows * mult);
+  const multNote = mult > 1 ? ` (zdvojnásobeno pro oboustranný vzor)` : '';
   document.getElementById('gaugeCalcHint').textContent =
-    `Podle zkušebního vzorku odpovídá ${width} × ${length} cm přesně ${recStitches} nahozeným okům a ${recRows} řadám.`;
+    `Podle zkušebního vzorku odpovídá ${width} × ${length} cm přesně ${recStitches} nahozeným okům a ${recRows} řadám${multNote}.`;
+}
+
+function recalculateEditTargetRows() {
+  const gRows = Math.max(1, Number(document.getElementById('editGaugeRows').value) || 26);
+  const length = Math.max(1, Number(document.getElementById('editTargetLength').value) || 170);
+  const mult = getRowMultiplier(document.getElementById('editStitchStyle').value);
+  document.getElementById('editTargetRows').value = Math.round((length / 10) * gRows * mult);
+  updateEditGaugeHint();
 }
 
 function bindEvents() {
@@ -796,7 +838,7 @@ function bindEvents() {
     }
   });
 
-  // Přepočet Gauge v nastavení
+  // Přepočet Gauge a stylu pletení v nastavení
   ['editGaugeStitches', 'editTargetWidth'].forEach(id => {
     document.getElementById(id).addEventListener('input', () => {
       const gSts = Math.max(1, Number(document.getElementById('editGaugeStitches').value) || 20);
@@ -807,13 +849,10 @@ function bindEvents() {
   });
 
   ['editGaugeRows', 'editTargetLength'].forEach(id => {
-    document.getElementById(id).addEventListener('input', () => {
-      const gRows = Math.max(1, Number(document.getElementById('editGaugeRows').value) || 26);
-      const length = Math.max(1, Number(document.getElementById('editTargetLength').value) || 170);
-      document.getElementById('editTargetRows').value = Math.round((length / 10) * gRows);
-      updateEditGaugeHint();
-    });
+    document.getElementById(id).addEventListener('input', recalculateEditTargetRows);
   });
+
+  document.getElementById('editStitchStyle').addEventListener('change', recalculateEditTargetRows);
 
   editForm.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -852,12 +891,16 @@ function bindEvents() {
     document.getElementById(id).addEventListener('input', updateNewProjPreview);
   });
 
+  document.getElementById('newProjStyle').addEventListener('change', updateNewProjPreview);
+
   document.getElementById('newProjectForm').addEventListener('submit', (e) => {
     e.preventDefault();
     const gSts = Math.max(1, Number(document.getElementById('newProjGaugeSts').value) || 20);
     const gRows = Math.max(1, Number(document.getElementById('newProjGaugeRows').value) || 26);
     const width = Math.max(5, Number(document.getElementById('newProjWidth').value) || 25);
     const length = Math.max(20, Number(document.getElementById('newProjLength').value) || 180);
+    const styleKey = document.getElementById('newProjStyle').value;
+    const mult = getRowMultiplier(styleKey);
 
     const newId = 'proj_' + Date.now();
     const defaultColorId = 'col_' + Date.now();
@@ -867,13 +910,13 @@ function bindEvents() {
       name: document.getElementById('newProjName').value.trim() || 'Nová šála',
       needleSize: document.getElementById('newProjNeedles').value.trim() || '4.5 mm',
       yarnWeight: document.getElementById('newProjYarn').value,
-      stitchStyle: document.getElementById('newProjStyle').value,
+      stitchStyle: styleKey,
       gaugeStitches: gSts,
       gaugeRows: gRows,
       targetWidthCm: width,
       targetLengthCm: length,
       castOnStitches: Math.round((width / 10) * gSts),
-      targetRows: Math.round((length / 10) * gRows),
+      targetRows: Math.round((length / 10) * gRows * mult),
       currentRow: 0,
       palette: [{ id: defaultColorId, name: 'Základní příze', hex: '#e08252' }],
       rules: []
@@ -893,11 +936,13 @@ function updateNewProjPreview() {
   const gRows = Math.max(1, Number(document.getElementById('newProjGaugeRows').value) || 26);
   const width = Math.max(1, Number(document.getElementById('newProjWidth').value) || 25);
   const length = Math.max(1, Number(document.getElementById('newProjLength').value) || 180);
+  const mult = getRowMultiplier(document.getElementById('newProjStyle').value);
 
   const castOn = Math.round((width / 10) * gSts);
-  const rows = Math.round((length / 10) * gRows);
+  const rows = Math.round((length / 10) * gRows * mult);
+  const multNote = mult > 1 ? ` (2× řady pro oboustranný vzor)` : '';
   document.getElementById('newProjPreviewCalc').textContent =
-    `Výpočet podle Gauge: nahodit ${castOn} ok • cílový počet ${rows} řad.`;
+    `Výpočet podle Gauge: nahodit ${castOn} ok • cílový počet ${rows} řad${multNote}.`;
 }
 
 function addSequenceStepRow(project, selectedColorId, defaultRows = 2) {
