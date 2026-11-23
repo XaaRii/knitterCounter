@@ -1,6 +1,6 @@
 {
-  "name": "Počitadlo řádků – Pletení šál",
-  "short_name": "Počitadlo šál",
+  "name": "Knit Counter",
+  "short_name": "KnitCount",
   "description": "Offline počitadlo řádků, barevných pruhů a zkušebních vzorků (gauge) pro pletení šál.",
   "id": "./index.html",
   "start_url": "./index.html",
