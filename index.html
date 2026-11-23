@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#2c3e35" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Počitadlo řádků – Pletení šál</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+  <link rel="apple-touch-icon" href="./icon-192.png" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Horní lišta -->
+    <header class="topbar">
+      <div class="project-select-wrap">
+        <label for="projectSelect" class="sr-only">Rozpracovaná šála</label>
+        <select id="projectSelect" class="project-select" aria-label="Vybrat rozpracovanou šálu"></select>
+      </div>
+      <div class="topbar-actions">
+        <button id="installAppBtn" class="icon-btn install-btn hidden" title="Nainstalovat aplikaci na plochu" aria-label="Nainstalovat aplikaci">
+          📲
+        </button>
+        <button id="wakeLockBtn" class="icon-btn" title="Nevypínat displej během pletení" aria-pressed="false">
+          ☀️
+        </button>
+        <button id="newProjectBtn" class="icon-btn primary-icon" title="Nová šála" aria-label="Vytvořit novou šálu">
+          ＋
+        </button>
+      </div>
+    </header>
+
+    <!-- Prázdný stav, pokud ještě neexistuje žádná šála -->
+    <section id="emptyStateView" class="empty-state hidden">
+      <div class="empty-state-icon">🧶</div>
+      <h1>Zatím nemáte žádnou šálu</h1>
+      <p>Zadejte parametry příze, jehlic a zkušebního vzorku (gauge) a začněte počítat řádky.</p>
+      <button id="emptyCreateBtn" class="btn-primary-full">＋ Vytvořit první šálu</button>
+    </section>
+
+    <!-- Hlavní obsah podle záložky -->
+    <main id="mainContent" class="main-content">
+      <!-- ZÁLOŽKA 1: POČITADLO -->
+      <section id="tab-counter" class="tab-panel active" aria-label="Počitadlo řádků">
+        <div id="activeColorCard" class="color-banner">
+          <div class="color-banner-top">
+            <span class="badge-pill" id="stripeProgressBadge">Řada 1 / 1</span>
+            <span class="next-color-hint" id="nextColorHint">Další: —</span>
+          </div>
+          <div class="color-banner-main">
+            <span id="activeColorSwatch" class="swatch-dot"></span>
+            <div>
+              <div class="color-label-small">Aktuální barva</div>
+              <div id="activeColorName" class="color-name-large">Výchozí příze</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stitch-guide-card">
+          <div class="stitch-guide-header">
+            <span id="stitchStyleTitle" class="stitch-title">Vroubkový žerzej</span>
+            <span id="rowSideBadge" class="side-badge">Lichá řada • Líc</span>
+          </div>
+          <p id="stitchRowInstruction" class="stitch-instruction">Všechna oka hladce.</p>
+        </div>
+
+        <div class="scarf-map-wrap">
+          <div class="scarf-map-labels">
+            <span>Začátek</span>
+            <span id="scarfMapPercent">0 %</span>
+            <span>Cíl</span>
+          </div>
+          <div id="scarfColorMap" class="scarf-color-map" title="Barevný náhled celé šály"></div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span class="stat-label">Odhad délky</span>
+            <strong id="estLengthVal" class="stat-value">0 / 180 cm</strong>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Zbývá řad</span>
+            <strong id="remainingRowsVal" class="stat-value">0 řad</strong>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Nahozeno / šířka</span>
+            <strong id="widthInfoVal" class="stat-value">50 ok (~25 cm)</strong>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Upleteno ok</span>
+            <strong id="totalStitchesVal" class="stat-value">0 ok</strong>
+          </div>
+        </div>
+
+        <div class="counter-controls">
+          <div class="counter-display-row">
+            <button id="decrementBtn" class="btn-secondary-step" aria-label="Odebrat 1 řádek">
+              −1
+            </button>
+
+            <button id="manualRowBtn" class="row-number-display" title="Klepněte pro ruční nastavení řady">
+              <span class="row-caption">AKTUÁLNÍ ŘADA</span>
+              <span id="currentRowNumber" class="row-number">0</span>
+              <span class="row-edit-hint">✎ upravit ručně</span>
+            </button>
+
+            <button id="resetRowBtn" class="btn-secondary-step subtle" title="Vynulovat na 0" aria-label="Vynulovat počitadlo">
+              ↺
+            </button>
+          </div>
+
+          <button id="incrementBtn" class="btn-mega-plus">
+            <span class="plus-symbol">+1</span>
+            <span>PŘIDAT ŘÁDEK</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- ZÁLOŽKA 2: BARVY A PRAVIDLA -->
+      <section id="tab-colors" class="tab-panel" aria-label="Barvy a pravidla pruhů">
+        <div class="card">
+          <div class="card-header">
+            <h2>Paleta přízí v projektu</h2>
+          </div>
+          <div id="paletteList" class="palette-list"></div>
+          <form id="addColorForm" class="inline-form">
+            <input type="color" id="newColorHex" value="#c85a32" aria-label="Výběr barvy" />
+            <input type="text" id="newColorName" placeholder="Název barvy (např. Hořčicová)" required />
+            <button type="submit" class="btn-small-primary">Přidat</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Pravidla barev podle řádků</h2>
+            <button id="openRuleModalBtn" class="btn-small-primary">＋ Pravidlo</button>
+          </div>
+          <p class="helper-text">
+            Pravidla navazují za sebou od 1. řady. Můžete nastavit pevný počet řad jedné barvy nebo opakovanou sekvenci pruhů.
+          </p>
+          <div id="rulesList" class="rules-list"></div>
+        </div>
+      </section>
+
+      <!-- ZÁLOŽKA 3: PARAMETRY A GAUGE ŠÁLY -->
+      <section id="tab-settings" class="tab-panel" aria-label="Nastavení šály">
+        <form id="editProjectForm" class="card form-stack">
+          <h2>Parametry aktuální šály</h2>
+
+          <label class="field">
+            <span>Název šály</span>
+            <input type="text" id="editName" required />
+          </label>
+
+          <div class="form-row-2">
+            <label class="field">
+              <span>Velikost jehlic (mm)</span>
+              <input type="text" id="editNeedles" placeholder="např. 4.5 mm" />
+            </label>
+            <label class="field">
+              <span>Příze / síla vlny</span>
+              <select id="editYarnWeight">
+                <option value="Lace (velmi tenká)">Lace (velmi tenká)</option>
+                <option value="Fingering (ponožková)">Fingering (ponožková)</option>
+                <option value="Sport / Baby">Sport / Baby</option>
+                <option value="DK (středně tenká)">DK (středně tenká)</option>
+                <option value="Worsted / Aran (střední)" selected>Worsted / Aran (střední)</option>
+                <option value="Bulky (silná)">Bulky (silná)</option>
+                <option value="Super Bulky (extra silná)">Super Bulky (extra silná)</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Styl pletení (vzor)</span>
+            <select id="editStitchStyle"></select>
+          </label>
+
+          <fieldset class="fieldset-box">
+            <legend>Zkušební vzorek (Gauge na 10 × 10 cm)</legend>
+            <div class="form-row-2">
+              <label class="field">
+                <span>Oka na 10 cm</span>
+                <input type="number" id="editGaugeStitches" min="1" max="100" step="0.5" required />
+              </label>
+              <label class="field">
+                <span>Řady na 10 cm</span>
+                <input type="number" id="editGaugeRows" min="1" max="150" step="0.5" required />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="fieldset-box">
+            <legend>Cílové rozměry a oka</legend>
+            <div class="form-row-2">
+              <label class="field">
+                <span>Očekávaná šířka (cm)</span>
+                <input type="number" id="editTargetWidth" min="5" max="200" step="1" required />
+              </label>
+              <label class="field">
+                <span>Očekávaná délka (cm)</span>
+                <input type="number" id="editTargetLength" min="20" max="400" step="1" required />
+              </label>
+            </div>
+
+            <div class="form-row-2">
+              <label class="field">
+                <span>Počet nahozených ok</span>
+                <input type="number" id="editCastOn" min="4" max="500" step="1" required />
+              </label>
+              <label class="field">
+                <span>Cílový počet řad</span>
+                <input type="number" id="editTargetRows" min="1" max="2000" step="1" required />
+              </label>
+            </div>
+            <p id="gaugeCalcHint" class="calc-hint"></p>
+          </fieldset>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary-full">Uložit změny</button>
+            <button type="button" id="deleteProjectBtn" class="btn-danger-outline">Smazat tuto šálu</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <!-- Spodní navigace -->
+    <nav id="bottomNav" class="bottom-nav" aria-label="Hlavní navigace">
+      <button class="nav-item active" data-tab="tab-counter">
+        <span class="nav-icon">🧶</span>
+        <span>Počitadlo</span>
+      </button>
+      <button class="nav-item" data-tab="tab-colors">
+        <span class="nav-icon">🎨</span>
+        <span>Barvy a pruhy</span>
+      </button>
+      <button class="nav-item" data-tab="tab-settings">
+        <span class="nav-icon">📏</span>
+        <span>Nastavení & Gauge</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- MODAL: Ruční nastavení řady -->
+  <dialog id="manualRowDialog" class="modal">
+    <form method="dialog" id="manualRowForm" class="modal-box">
+      <h3>Nastavit číslo řady</h3>
+      <label class="field">
+        <span>Aktuální řada</span>
+        <input type="number" id="manualRowInput" min="0" max="9999" required />
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-dialog="manualRowDialog">Zrušit</button>
+        <button type="submit" class="btn-small-primary">Potvrdit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL: Přidat barevné pravidlo -->
+  <dialog id="ruleDialog" class="modal">
+    <form method="dialog" id="ruleForm" class="modal-box">
+      <h3>Nové barevné pravidlo</h3>
+
+      <label class="field">
+        <span>Typ pravidla</span>
+        <select id="ruleTypeSelect">
+          <option value="solid">Jedna barva – opakovat X řádků</option>
+          <option value="sequence">Sekvence barev – opakovat Y krát</option>
+        </select>
+      </label>
+
+      <div id="solidRuleFields" class="rule-subfields">
+        <label class="field">
+          <span>Barva příze</span>
+          <select id="solidColorSelect"></select>
+        </label>
+        <label class="field">
+          <span>Počet řádků (X)</span>
+          <input type="number" id="solidRowsInput" min="1" max="2000" value="10" required />
+        </label>
+      </div>
+
+      <div id="sequenceRuleFields" class="rule-subfields hidden">
+        <div class="seq-header">
+          <span>Kroky v jedné sekvenci:</span>
+          <button type="button" id="addSeqStepBtn" class="btn-tiny">+ Krok</button>
+        </div>
+        <div id="seqStepsContainer" class="seq-steps-list"></div>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="seqRepeatInfinite" />
+          <span>Opakovat sekvenci až do konce šály</span>
+        </label>
+
+        <label class="field" id="seqRepeatCountWrap">
+          <span>Počet opakování celé sekvence (Y)</span>
+          <input type="number" id="seqRepeatCount" min="1" max="500" value="5" />
+        </label>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-dialog="ruleDialog">Zrušit</button>
+        <button type="submit" class="btn-small-primary">Přidat pravidlo</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL: Nová šála -->
+  <dialog id="newProjectDialog" class="modal">
+    <form method="dialog" id="newProjectForm" class="modal-box">
+      <h3 id="newProjectModalTitle">Nová šála</h3>
+
+      <label class="field">
+        <span>Název projektu</span>
+        <input type="text" id="newProjName" placeholder="např. Zimní merino šála" required />
+      </label>
+
+      <div class="form-row-2">
+        <label class="field">
+          <span>Jehlice (mm)</span>
+          <input type="text" id="newProjNeedles" value="4.5 mm" />
+        </label>
+        <label class="field">
+          <span>Síla vlny</span>
+          <select id="newProjYarn">
+            <option value="Lace (velmi tenká)">Lace</option>
+            <option value="Fingering (ponožková)">Fingering</option>
+            <option value="Sport / Baby">Sport / Baby</option>
+            <option value="DK (středně tenká)">DK</option>
+            <option value="Worsted / Aran (střední)" selected>Worsted / Aran</option>
+            <option value="Bulky (silná)">Bulky</option>
+            <option value="Super Bulky (extra silná)">Super Bulky</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Styl pletení</span>
+        <select id="newProjStyle"></select>
+      </label>
+
+      <div class="form-row-2">
+        <label class="field">
+          <span>Gauge: Oka / 10 cm</span>
+          <input type="number" id="newProjGaugeSts" min="1" max="100" step="0.5" value="20" required />
+        </label>
+        <label class="field">
+          <span>Gauge: Řady / 10 cm</span>
+          <input type="number" id="newProjGaugeRows" min="1" max="150" step="0.5" value="26" required />
+        </label>
+      </div>
+
+      <div class="form-row-2">
+        <label class="field">
+          <span>Cílová šířka (cm)</span>
+          <input type="number" id="newProjWidth" min="5" max="200" value="25" required />
+        </label>
+        <label class="field">
+          <span>Cílová délka (cm)</span>
+          <input type="number" id="newProjLength" min="20" max="400" value="180" required />
+        </label>
+      </div>
+
+      <p id="newProjPreviewCalc" class="calc-hint"></p>
+
+      <div class="modal-actions">
+        <button type="button" id="cancelNewProjBtn" class="btn-ghost" data-close-dialog="newProjectDialog">Zrušit</button>
+        <button type="submit" class="btn-small-primary">Vytvořit šálu</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="./app.js"></script>
+</body>
+</html>
