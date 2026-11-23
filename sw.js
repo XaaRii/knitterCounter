@@ -1,4 +1,4 @@
-const CACHE_NAME = 'knit-counter-pwa-v2';
+const CACHE_NAME = 'knit-counter-pwa-v3';
 const CORE_ASSETS = [
   './index.html',
   './style.css',

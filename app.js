@@ -41,8 +41,10 @@ function createEmptyState() {
 }
 
 let state = loadState();
-let wakeLock = null;
 let deferredInstallPrompt = null;
+let isSettingsDirty = false;
+let pendingNavigationAction = null;
+let editingRuleIndex = null;
 
 function loadState() {
   try {
@@ -100,12 +102,85 @@ function openNewProjectModal(isFirstProject = false) {
   }
 }
 
+function openRuleModal(ruleIndex = null) {
+  const project = getActiveProject();
+  if (!project) return;
+
+  editingRuleIndex = ruleIndex;
+  const isEditing = ruleIndex !== null && project.rules[ruleIndex];
+  const rule = isEditing ? project.rules[ruleIndex] : null;
+
+  document.getElementById('ruleModalTitle').textContent = isEditing
+    ? 'Upravit barevné pravidlo'
+    : 'Nové barevné pravidlo';
+  document.getElementById('ruleSubmitBtn').textContent = isEditing
+    ? 'Uložit pravidlo'
+    : 'Přidat pravidlo';
+
+  const solidSelect = document.getElementById('solidColorSelect');
+  solidSelect.innerHTML = project.palette
+    .map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`)
+    .join('');
+
+  const typeSelect = document.getElementById('ruleTypeSelect');
+  const stepsContainer = document.getElementById('seqStepsContainer');
+  stepsContainer.innerHTML = '';
+
+  if (isEditing && rule.type === 'solid') {
+    typeSelect.value = 'solid';
+    if (project.palette.some(c => c.id === rule.colorId)) {
+      solidSelect.value = rule.colorId;
+    }
+    document.getElementById('solidRowsInput').value = Math.max(1, Number(rule.rows) || 1);
+
+    // Připravíme výchozí kroky pro případ přepnutí typu na sekvenci
+    addSequenceStepRow(project, project.palette[0]?.id, 2);
+    if (project.palette[1]) addSequenceStepRow(project, project.palette[1].id, 2);
+    document.getElementById('seqRepeatInfinite').checked = false;
+    document.getElementById('seqRepeatCount').value = 5;
+  } else if (isEditing && rule.type === 'sequence') {
+    typeSelect.value = 'sequence';
+    document.getElementById('solidRowsInput').value = 10;
+
+    if (rule.steps && rule.steps.length > 0) {
+      rule.steps.forEach(step => {
+        addSequenceStepRow(project, step.colorId, Math.max(1, Number(step.rows) || 1));
+      });
+    } else {
+      addSequenceStepRow(project, project.palette[0]?.id, 2);
+    }
+
+    const infinite = Boolean(rule.repeatUntilEnd);
+    document.getElementById('seqRepeatInfinite').checked = infinite;
+    document.getElementById('seqRepeatCount').value = Math.max(1, Number(rule.repeatCount) || 1);
+  } else {
+    typeSelect.value = 'solid';
+    document.getElementById('solidRowsInput').value = 10;
+    addSequenceStepRow(project, project.palette[0]?.id, 2);
+    if (project.palette[1]) {
+      addSequenceStepRow(project, project.palette[1].id, 2);
+    }
+    document.getElementById('seqRepeatInfinite').checked = false;
+    document.getElementById('seqRepeatCount').value = 5;
+  }
+
+  const isSolid = typeSelect.value === 'solid';
+  document.getElementById('solidRuleFields').classList.toggle('hidden', !isSolid);
+  document.getElementById('sequenceRuleFields').classList.toggle('hidden', isSolid);
+  document.getElementById('seqRepeatCountWrap').classList.toggle(
+    'hidden',
+    document.getElementById('seqRepeatInfinite').checked
+  );
+
+  document.getElementById('ruleDialog').showModal();
+}
+
 function resolveColorForRow(project, rowNum) {
   const effectiveRow = Math.max(1, rowNum);
   const findColor = (id) => project.palette.find(c => c.id === id) || { name: 'Neznámá barva', hex: '#999999' };
 
   if (!project.rules || project.rules.length === 0) {
-    const fallback = project.palette[0] || { name: 'Výchozí příze', hex: '#d97746' };
+    const fallback = project.palette[0] || { name: 'Výchozí příze', hex: '#e08252' };
     return {
       color: fallback,
       rowInStripe: effectiveRow,
@@ -206,35 +281,22 @@ function getFirstColorOfNextRule(project, currentRuleIdx) {
   return null;
 }
 
-function buildVisualSegments(project) {
+function buildKnittedSegments(project, currentRow) {
   const target = Math.max(1, Number(project.targetRows) || 100);
-  const findHex = (id) => (project.palette.find(c => c.id === id) || { hex: '#b8b0a4' }).hex;
+  const knitted = Math.max(0, Number(currentRow) || 0);
+  const totalScale = Math.max(target, knitted);
   const segments = [];
-  let filled = 0;
 
-  for (const rule of project.rules || []) {
-    if (filled >= target) break;
-    if (rule.type === 'solid') {
-      const len = Math.min(target - filled, Math.max(1, Number(rule.rows) || 1));
-      segments.push({ hex: findHex(rule.colorId), rows: len });
-      filled += len;
-    } else if (rule.type === 'sequence' && rule.steps && rule.steps.length > 0) {
-      const maxReps = rule.repeatUntilEnd ? 999 : Math.max(1, Number(rule.repeatCount) || 1);
-      for (let r = 0; r < maxReps && filled < target; r++) {
-        for (const step of rule.steps) {
-          if (filled >= target) break;
-          const len = Math.min(target - filled, Math.max(1, Number(step.rows) || 1));
-          segments.push({ hex: findHex(step.colorId), rows: len });
-          filled += len;
-        }
-      }
+  for (let r = 1; r <= knitted; r++) {
+    const hex = resolveColorForRow(project, r).color.hex;
+    if (segments.length > 0 && segments[segments.length - 1].hex === hex) {
+      segments[segments.length - 1].rows += 1;
+    } else {
+      segments.push({ hex, rows: 1 });
     }
   }
 
-  if (filled < target) {
-    segments.push({ hex: '#d5cec2', rows: target - filled });
-  }
-  return { segments, total: target };
+  return { segments, target, totalScale };
 }
 
 function renderAll() {
@@ -271,6 +333,8 @@ function renderProjectSelector() {
 function renderCounterTab(project) {
   const row = Number(project.currentRow) || 0;
   const displayRowForRules = row === 0 ? 1 : row;
+
+  document.getElementById('currentRowNumber').textContent = row;
 
   const colorInfo = resolveColorForRow(project, displayRowForRules);
   const banner = document.getElementById('activeColorCard');
@@ -315,13 +379,13 @@ function renderCounterTab(project) {
   document.getElementById('stitchRowInstruction').textContent = isOdd ? styleObj.odd : styleObj.even;
 
   const mapEl = document.getElementById('scarfColorMap');
-  const { segments, total } = buildVisualSegments(project);
-  const progressPct = Math.min(100, Math.round((row / total) * 100));
-  document.getElementById('scarfMapPercent').textContent = `${progressPct} % (${row} / ${total} ř.)`;
+  const { segments, target, totalScale } = buildKnittedSegments(project, row);
+  const progressPct = Math.min(100, Math.round((row / target) * 100));
+  document.getElementById('scarfMapPercent').textContent = `${progressPct} % (${row} / ${target} ř.)`;
 
   mapEl.innerHTML = segments
-    .map(seg => `<div class="scarf-map-segment" style="width:${(seg.rows / total) * 100}%;background:${seg.hex}"></div>`)
-    .join('') + `<div class="scarf-map-marker" style="left:${progressPct}%"></div>`;
+    .map(seg => `<div class="scarf-map-segment" style="width:${(seg.rows / totalScale) * 100}%;background:${seg.hex}"></div>`)
+    .join('');
 
   const gSts = Math.max(1, Number(project.gaugeStitches) || 20);
   const gRows = Math.max(1, Number(project.gaugeRows) || 26);
@@ -338,8 +402,6 @@ function renderCounterTab(project) {
   document.getElementById('remainingRowsVal').textContent = remainingRows === 0 ? 'Hotovo! 🎉' : `${remainingRows} řad`;
   document.getElementById('widthInfoVal').textContent = `${castOn} ok (~${actualWidthCm} cm)`;
   document.getElementById('totalStitchesVal').textContent = `${totalStitchesKnitted} ok`;
-
-  document.getElementById('currentRowNumber').textContent = row;
 }
 
 function renderColorsTab(project) {
@@ -399,16 +461,19 @@ function renderColorsTab(project) {
 
       return `
         <div class="rule-item">
-          <div>
-            <div class="rule-range">${rangeText}</div>
-            <div class="rule-desc">${descText}</div>
-            <div class="rule-swatches">${pillsHtml}</div>
+          <div class="rule-item-header">
+            <div class="rule-header-text">
+              <div class="rule-range">${rangeText}</div>
+              <div class="rule-desc">${descText}</div>
+            </div>
+            <div class="rule-actions">
+              <button class="btn-tiny" data-edit-rule="${idx}" title="Upravit pravidlo" aria-label="Upravit pravidlo">✎</button>
+              ${idx > 0 ? `<button class="btn-tiny" data-move-rule="${idx}" data-dir="-1" title="Posunout nahoru" aria-label="Posunout nahoru">↑</button>` : ''}
+              ${idx < project.rules.length - 1 ? `<button class="btn-tiny" data-move-rule="${idx}" data-dir="1" title="Posunout dolů" aria-label="Posunout dolů">↓</button>` : ''}
+              <button class="btn-tiny danger-tiny" data-del-rule="${idx}" title="Smazat pravidlo" aria-label="Smazat pravidlo">🗑</button>
+            </div>
           </div>
-          <div class="rule-actions">
-            ${idx > 0 ? `<button class="btn-tiny" data-move-rule="${idx}" data-dir="-1" title="Posunout nahoru">↑</button>` : ''}
-            ${idx < project.rules.length - 1 ? `<button class="btn-tiny" data-move-rule="${idx}" data-dir="1" title="Posunout dolů">↓</button>` : ''}
-            <button class="btn-tiny" data-del-rule="${idx}" title="Smazat pravidlo">🗑</button>
-          </div>
+          <div class="rule-swatches">${pillsHtml}</div>
         </div>
       `;
     })
@@ -430,7 +495,50 @@ function renderSettingsTab(project) {
   document.getElementById('editTargetLength').value = project.targetLengthCm;
   document.getElementById('editCastOn').value = project.castOnStitches;
   document.getElementById('editTargetRows').value = project.targetRows;
+  isSettingsDirty = false;
   updateEditGaugeHint();
+}
+
+function saveSettingsFromForm() {
+  const project = getActiveProject();
+  if (!project) return false;
+  const form = document.getElementById('editProjectForm');
+  if (!form.reportValidity()) return false;
+
+  project.name = document.getElementById('editName').value.trim() || 'Šála';
+  project.needleSize = document.getElementById('editNeedles').value.trim();
+  project.yarnWeight = document.getElementById('editYarnWeight').value;
+  project.stitchStyle = document.getElementById('editStitchStyle').value;
+  project.gaugeStitches = Math.max(1, Number(document.getElementById('editGaugeStitches').value) || 20);
+  project.gaugeRows = Math.max(1, Number(document.getElementById('editGaugeRows').value) || 26);
+  project.targetWidthCm = Math.max(1, Number(document.getElementById('editTargetWidth').value) || 25);
+  project.targetLengthCm = Math.max(1, Number(document.getElementById('editTargetLength').value) || 170);
+  project.castOnStitches = Math.max(1, parseInt(document.getElementById('editCastOn').value, 10) || 50);
+  project.targetRows = Math.max(1, parseInt(document.getElementById('editTargetRows').value, 10) || 440);
+
+  isSettingsDirty = false;
+  saveState();
+  renderAll();
+  return true;
+}
+
+function guardUnsavedSettings(actionFn) {
+  const settingsTabActive = document.getElementById('tab-settings').classList.contains('active');
+  if (settingsTabActive && isSettingsDirty) {
+    pendingNavigationAction = actionFn;
+    document.getElementById('unsavedChangesDialog').showModal();
+    return;
+  }
+  actionFn();
+}
+
+function switchTab(tabId) {
+  document.querySelectorAll('.nav-item').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tabId);
+  });
+  document.querySelectorAll('.tab-panel').forEach(p => {
+    p.classList.toggle('active', p.id === tabId);
+  });
 }
 
 function updateEditGaugeHint() {
@@ -447,19 +555,59 @@ function updateEditGaugeHint() {
 
 function bindEvents() {
   document.getElementById('projectSelect').addEventListener('change', (e) => {
-    state.activeProjectId = e.target.value;
-    saveState();
-    renderAll();
+    const nextProjectId = e.target.value;
+    const prevProjectId = state.activeProjectId;
+    e.target.value = prevProjectId;
+
+    guardUnsavedSettings(() => {
+      state.activeProjectId = nextProjectId;
+      saveState();
+      renderAll();
+    });
   });
 
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById(btn.dataset.tab).classList.add('active');
+      const targetTab = btn.dataset.tab;
+      if (btn.classList.contains('active')) return;
+
+      guardUnsavedSettings(() => {
+        switchTab(targetTab);
+      });
     });
   });
+
+  document.getElementById('unsavedSaveBtn').addEventListener('click', () => {
+    if (saveSettingsFromForm()) {
+      document.getElementById('unsavedChangesDialog').close();
+      if (pendingNavigationAction) {
+        const fn = pendingNavigationAction;
+        pendingNavigationAction = null;
+        fn();
+      }
+    }
+  });
+
+  document.getElementById('unsavedDiscardBtn').addEventListener('click', () => {
+    isSettingsDirty = false;
+    const project = getActiveProject();
+    if (project) renderSettingsTab(project);
+    document.getElementById('unsavedChangesDialog').close();
+    if (pendingNavigationAction) {
+      const fn = pendingNavigationAction;
+      pendingNavigationAction = null;
+      fn();
+    }
+  });
+
+  document.getElementById('unsavedStayBtn').addEventListener('click', () => {
+    pendingNavigationAction = null;
+    document.getElementById('unsavedChangesDialog').close();
+  });
+
+  const editForm = document.getElementById('editProjectForm');
+  editForm.addEventListener('input', () => { isSettingsDirty = true; });
+  editForm.addEventListener('change', () => { isSettingsDirty = true; });
 
   document.getElementById('incrementBtn').addEventListener('click', () => {
     const project = getActiveProject();
@@ -477,16 +625,6 @@ function bindEvents() {
     if (navigator.vibrate) navigator.vibrate(15);
     saveState();
     renderCounterTab(project);
-  });
-
-  document.getElementById('resetRowBtn').addEventListener('click', () => {
-    const project = getActiveProject();
-    if (!project || project.currentRow === 0) return;
-    if (confirm('Opravdu vynulovat počitadlo řádků na 0?')) {
-      project.currentRow = 0;
-      saveState();
-      renderCounterTab(project);
-    }
   });
 
   document.getElementById('manualRowBtn').addEventListener('click', () => {
@@ -513,34 +651,11 @@ function bindEvents() {
     });
   });
 
-  // Wake Lock
-  document.getElementById('wakeLockBtn').addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    if (!('wakeLock' in navigator)) {
-      alert('Váš prohlížeč nepodporuje zámek zhasínání displeje.');
-      return;
-    }
-    try {
-      if (wakeLock) {
-        await wakeLock.release();
-        wakeLock = null;
-        btn.classList.remove('active-lock');
-        btn.setAttribute('aria-pressed', 'false');
-      } else {
-        wakeLock = await navigator.wakeLock.request('screen');
-        btn.classList.add('active-lock');
-        btn.setAttribute('aria-pressed', 'true');
-        wakeLock.addEventListener('release', () => {
-          wakeLock = null;
-          btn.classList.remove('active-lock');
-        });
-      }
-    } catch {
-      alert('Nepodařilo se aktivovat stálé podsvícení displeje.');
-    }
+  document.getElementById('ruleDialog').addEventListener('close', () => {
+    editingRuleIndex = null;
   });
 
-  // PWA Instalace přes tlačítko v horní liště (Chrome / Edge / Android)
+  // PWA Instalace
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredInstallPrompt = e;
@@ -572,8 +687,9 @@ function bindEvents() {
   });
 
   document.getElementById('paletteList').addEventListener('click', (e) => {
-    const delId = e.target.dataset.delColor;
-    if (!delId) return;
+    const btn = e.target.closest('[data-del-color]');
+    if (!btn) return;
+    const delId = btn.dataset.delColor;
     const project = getActiveProject();
     if (!project || project.palette.length <= 1) return;
     project.palette = project.palette.filter(c => c.id !== delId);
@@ -581,23 +697,9 @@ function bindEvents() {
     renderAll();
   });
 
-  // Barevná pravidla
+  // Barevná pravidla (přidání i editace)
   document.getElementById('openRuleModalBtn').addEventListener('click', () => {
-    const project = getActiveProject();
-    if (!project) return;
-    const solidSelect = document.getElementById('solidColorSelect');
-    solidSelect.innerHTML = project.palette
-      .map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`)
-      .join('');
-
-    const stepsContainer = document.getElementById('seqStepsContainer');
-    stepsContainer.innerHTML = '';
-    addSequenceStepRow(project, project.palette[0]?.id, 2);
-    if (project.palette[1]) {
-      addSequenceStepRow(project, project.palette[1].id, 2);
-    }
-
-    document.getElementById('ruleDialog').showModal();
+    openRuleModal(null);
   });
 
   document.getElementById('ruleTypeSelect').addEventListener('change', (e) => {
@@ -621,11 +723,15 @@ function bindEvents() {
     const project = getActiveProject();
     if (!project) return;
     const type = document.getElementById('ruleTypeSelect').value;
+    const isEditing = editingRuleIndex !== null && project.rules[editingRuleIndex];
+    const existingId = isEditing ? project.rules[editingRuleIndex].id : 'rule_' + Date.now();
+
+    let updatedRule = null;
 
     if (type === 'solid') {
       const colorId = document.getElementById('solidColorSelect').value;
       const rows = Math.max(1, parseInt(document.getElementById('solidRowsInput').value, 10) || 1);
-      project.rules.push({ id: 'rule_' + Date.now(), type: 'solid', colorId, rows });
+      updatedRule = { id: existingId, type: 'solid', colorId, rows };
     } else {
       const stepEls = Array.from(document.querySelectorAll('.seq-step-row'));
       const steps = stepEls.map(el => ({
@@ -637,35 +743,48 @@ function bindEvents() {
       const repeatUntilEnd = document.getElementById('seqRepeatInfinite').checked;
       const repeatCount = Math.max(1, parseInt(document.getElementById('seqRepeatCount').value, 10) || 1);
 
-      project.rules.push({
-        id: 'rule_' + Date.now(),
+      updatedRule = {
+        id: existingId,
         type: 'sequence',
         steps,
         repeatCount,
         repeatUntilEnd
-      });
+      };
     }
 
+    if (isEditing) {
+      project.rules[editingRuleIndex] = updatedRule;
+    } else {
+      project.rules.push(updatedRule);
+    }
+
+    editingRuleIndex = null;
     saveState();
     renderAll();
     document.getElementById('ruleDialog').close();
   });
 
   document.getElementById('rulesList').addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
     const project = getActiveProject();
     if (!project) return;
-    const delIdx = e.target.dataset.delRule;
-    if (delIdx !== undefined) {
-      project.rules.splice(Number(delIdx), 1);
+
+    if (btn.dataset.editRule !== undefined) {
+      openRuleModal(Number(btn.dataset.editRule));
+      return;
+    }
+
+    if (btn.dataset.delRule !== undefined) {
+      project.rules.splice(Number(btn.dataset.delRule), 1);
       saveState();
       renderAll();
       return;
     }
 
-    const moveIdx = e.target.dataset.moveRule;
-    if (moveIdx !== undefined) {
-      const idx = Number(moveIdx);
-      const dir = Number(e.target.dataset.dir);
+    if (btn.dataset.moveRule !== undefined) {
+      const idx = Number(btn.dataset.moveRule);
+      const dir = Number(btn.dataset.dir);
       const targetIdx = idx + dir;
       if (targetIdx >= 0 && targetIdx < project.rules.length) {
         const temp = project.rules[idx];
@@ -696,43 +815,33 @@ function bindEvents() {
     });
   });
 
-  document.getElementById('editProjectForm').addEventListener('submit', (e) => {
+  editForm.addEventListener('submit', (e) => {
     e.preventDefault();
-    const project = getActiveProject();
-    if (!project) return;
-    project.name = document.getElementById('editName').value.trim() || 'Šála';
-    project.needleSize = document.getElementById('editNeedles').value.trim();
-    project.yarnWeight = document.getElementById('editYarnWeight').value;
-    project.stitchStyle = document.getElementById('editStitchStyle').value;
-    project.gaugeStitches = Math.max(1, Number(document.getElementById('editGaugeStitches').value) || 20);
-    project.gaugeRows = Math.max(1, Number(document.getElementById('editGaugeRows').value) || 26);
-    project.targetWidthCm = Math.max(1, Number(document.getElementById('editTargetWidth').value) || 25);
-    project.targetLengthCm = Math.max(1, Number(document.getElementById('editTargetLength').value) || 170);
-    project.castOnStitches = Math.max(1, parseInt(document.getElementById('editCastOn').value, 10) || 50);
-    project.targetRows = Math.max(1, parseInt(document.getElementById('editTargetRows').value, 10) || 440);
-
-    saveState();
-    renderAll();
-    alert('Parametry šály byly uloženy.');
+    if (saveSettingsFromForm()) {
+      alert('Parametry šály byly uloženy.');
+    }
   });
 
   document.getElementById('deleteProjectBtn').addEventListener('click', () => {
     const project = getActiveProject();
     if (!project) return;
     if (confirm(`Opravdu smazat šálu „${project.name}“?`)) {
+      isSettingsDirty = false;
       state.projects = state.projects.filter(p => p.id !== project.id);
       state.activeProjectId = state.projects[0]?.id || null;
       saveState();
       renderAll();
+      switchTab('tab-counter');
       if (!state.projects.length) {
         openNewProjectModal(true);
       }
     }
   });
 
-  // Tlačítka pro vytvoření nové šály
   document.getElementById('newProjectBtn').addEventListener('click', () => {
-    openNewProjectModal(state.projects.length === 0);
+    guardUnsavedSettings(() => {
+      openNewProjectModal(state.projects.length === 0);
+    });
   });
 
   document.getElementById('emptyCreateBtn').addEventListener('click', () => {
@@ -766,13 +875,14 @@ function bindEvents() {
       castOnStitches: Math.round((width / 10) * gSts),
       targetRows: Math.round((length / 10) * gRows),
       currentRow: 0,
-      palette: [{ id: defaultColorId, name: 'Základní příze', hex: '#d97746' }],
+      palette: [{ id: defaultColorId, name: 'Základní příze', hex: '#e08252' }],
       rules: []
     });
 
     state.activeProjectId = newId;
     saveState();
     renderAll();
+    switchTab('tab-counter');
     document.getElementById('newProjectDialog').close();
     e.target.reset();
   });
@@ -824,7 +934,6 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 bindEvents();
 renderAll();
 
-// Pokud při prvním spuštění není žádná šála, rovnou otevři dialog pro vytvoření
 if (state.projects.length === 0) {
   openNewProjectModal(true);
 }

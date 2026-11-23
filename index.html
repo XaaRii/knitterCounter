@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#2c3e35" />
+  <meta name="theme-color" content="#161917" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Počitadlo řádků – Pletení šál</title>
@@ -24,11 +24,8 @@
         <button id="installAppBtn" class="icon-btn install-btn hidden" title="Nainstalovat aplikaci na plochu" aria-label="Nainstalovat aplikaci">
           📲
         </button>
-        <button id="wakeLockBtn" class="icon-btn" title="Nevypínat displej během pletení" aria-pressed="false">
-          ☀️
-        </button>
-        <button id="newProjectBtn" class="icon-btn primary-icon" title="Nová šála" aria-label="Vytvořit novou šálu">
-          ＋
+        <button id="newProjectBtn" class="new-project-btn" title="Nová šála" aria-label="Vytvořit novou šálu">
+          ＋ Nová
         </button>
       </div>
     </header>
@@ -45,6 +42,14 @@
     <main id="mainContent" class="main-content">
       <!-- ZÁLOŽKA 1: POČITADLO -->
       <section id="tab-counter" class="tab-panel active" aria-label="Počitadlo řádků">
+        <!-- Aktuální číslo řady hned nahoře pod výběrem šály -->
+        <button id="manualRowBtn" class="row-number-display" title="Klepněte pro ruční nastavení řady">
+          <span class="row-caption">AKTUÁLNÍ ŘADA</span>
+          <span id="currentRowNumber" class="row-number">0</span>
+          <span class="row-edit-hint">✎ upravit ručně</span>
+        </button>
+
+        <!-- Karta aktuální barvy -->
         <div id="activeColorCard" class="color-banner">
           <div class="color-banner-top">
             <span class="badge-pill" id="stripeProgressBadge">Řada 1 / 1</span>
@@ -59,6 +64,7 @@
           </div>
         </div>
 
+        <!-- Instrukce pro styl pletení -->
         <div class="stitch-guide-card">
           <div class="stitch-guide-header">
             <span id="stitchStyleTitle" class="stitch-title">Vroubkový žerzej</span>
@@ -67,15 +73,17 @@
           <p id="stitchRowInstruction" class="stitch-instruction">Všechna oka hladce.</p>
         </div>
 
+        <!-- Vizuální náhled upletené části šály (40px) -->
         <div class="scarf-map-wrap">
           <div class="scarf-map-labels">
-            <span>Začátek</span>
+            <span>Upleteno</span>
             <span id="scarfMapPercent">0 %</span>
             <span>Cíl</span>
           </div>
-          <div id="scarfColorMap" class="scarf-color-map" title="Barevný náhled celé šály"></div>
+          <div id="scarfColorMap" class="scarf-color-map" title="Barevný náhled již upletené části šály"></div>
         </div>
 
+        <!-- Odhad délky & Gauge statistiky -->
         <div class="stats-grid">
           <div class="stat-box">
             <span class="stat-label">Odhad délky</span>
@@ -95,27 +103,17 @@
           </div>
         </div>
 
+        <!-- Spodní ovládací tlačítka: -1 vlevo, +1 vpravo -->
         <div class="counter-controls">
-          <div class="counter-display-row">
+          <div class="counter-buttons-row">
             <button id="decrementBtn" class="btn-secondary-step" aria-label="Odebrat 1 řádek">
               −1
             </button>
-
-            <button id="manualRowBtn" class="row-number-display" title="Klepněte pro ruční nastavení řady">
-              <span class="row-caption">AKTUÁLNÍ ŘADA</span>
-              <span id="currentRowNumber" class="row-number">0</span>
-              <span class="row-edit-hint">✎ upravit ručně</span>
-            </button>
-
-            <button id="resetRowBtn" class="btn-secondary-step subtle" title="Vynulovat na 0" aria-label="Vynulovat počitadlo">
-              ↺
+            <button id="incrementBtn" class="btn-mega-plus">
+              <span class="plus-symbol">+1</span>
+              <span>PŘIDAT ŘÁDEK</span>
             </button>
           </div>
-
-          <button id="incrementBtn" class="btn-mega-plus">
-            <span class="plus-symbol">+1</span>
-            <span>PŘIDAT ŘÁDEK</span>
-          </button>
         </div>
       </section>
 
@@ -244,6 +242,21 @@
     </nav>
   </div>
 
+  <!-- MODAL: Neuložené změny v nastavení -->
+  <dialog id="unsavedChangesDialog" class="modal">
+    <div class="modal-box">
+      <h3>Neuložené změny</h3>
+      <p class="helper-text" style="margin:0;">
+        Upravili jste nastavení této šály, ale změny ještě nejsou uložené. Chcete je uložit?
+      </p>
+      <div class="modal-actions-stack">
+        <button type="button" id="unsavedSaveBtn" class="btn-primary-full">Uložit změny</button>
+        <button type="button" id="unsavedDiscardBtn" class="btn-danger-outline">Zahodit změny</button>
+        <button type="button" id="unsavedStayBtn" class="btn-ghost" style="width:100%;">Zůstat v nastavení</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- MODAL: Ruční nastavení řady -->
   <dialog id="manualRowDialog" class="modal">
     <form method="dialog" id="manualRowForm" class="modal-box">
@@ -259,10 +272,10 @@
     </form>
   </dialog>
 
-  <!-- MODAL: Přidat barevné pravidlo -->
+<!-- MODAL: Přidat / upravit barevné pravidlo -->
   <dialog id="ruleDialog" class="modal">
     <form method="dialog" id="ruleForm" class="modal-box">
-      <h3>Nové barevné pravidlo</h3>
+      <h3 id="ruleModalTitle">Nové barevné pravidlo</h3>
 
       <label class="field">
         <span>Typ pravidla</span>
@@ -303,7 +316,7 @@
 
       <div class="modal-actions">
         <button type="button" class="btn-ghost" data-close-dialog="ruleDialog">Zrušit</button>
-        <button type="submit" class="btn-small-primary">Přidat pravidlo</button>
+        <button type="submit" id="ruleSubmitBtn" class="btn-small-primary">Přidat pravidlo</button>
       </div>
     </form>
   </dialog>
